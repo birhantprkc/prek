@@ -31,7 +31,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+
+      - name: "Install mold"
+        run: ./scripts/install-mold.sh
+
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ inputs.save-rust-cache == 'true' }}
@@ -43,7 +46,7 @@ jobs:
         id: bloat_head
         run: |
           # Build head branch
-          cargo bloat | tee bloat_head.txt >&1
+          cargo bloat --profile profiling | tee bloat_head.txt >&1
 
       - name: Checkout base
         run: |
@@ -53,7 +56,7 @@ jobs:
         id: bloat_base
         run: |
           # Build base branch
-          cargo bloat | tee bloat_base.txt >&1
+          cargo bloat --profile profiling | tee bloat_base.txt >&1
 
       - name: Compare bloat results
         shell: python
@@ -62,7 +65,7 @@ jobs:
           from pathlib import Path
 
           def parse_size(text):
-              match = re.search(r'\.text section size.*?([\d.]+)\s*([KMGT]i?B)', text)
+              match = re.search(r'([\d.]+)\s*([KMGT]i?B)\s+\.text section size', text)
               if not match:
                   raise ValueError("Could not find .text section size")
               value, unit = float(match.group(1)), match.group(2)
@@ -80,7 +83,7 @@ jobs:
           pct_display = f"{pct_change:+.2f}%"
           comparison = f"""\
           ### 📦 Cargo Bloat Comparison
-          **Binary size change:** {pct_display} ({base_size} → {head_size})
+          **`.text` size change:** {pct_display} ({base_size} → {head_size})
 
           <details>
             <summary>Expand for cargo-bloat output</summary>

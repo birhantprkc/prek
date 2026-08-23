@@ -234,7 +234,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+
+      - name: "Install mold"
+        run: ./scripts/install-mold.sh
+
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ needs.plan.outputs.save-rust-cache == 'true' }}
@@ -256,7 +259,7 @@ jobs:
           persist-credentials: false
 
       - name: Create Dev Drive
-        run: ${{ github.workspace }}/.github/scripts/setup-dev-drive.ps1
+        run: ${{ github.workspace }}/scripts/setup-dev-drive.ps1
 
       # actions/checkout does not let us clone into anywhere outside ${{ github.workspace }}, so we have to copy the clone...
       - name: Copy Git Repo to Dev Drive
@@ -294,14 +297,17 @@ jobs:
   cargo-test-without-uv:
     needs: plan
     if: ${{ needs.plan.outputs.test-code == 'true' }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     name: "cargo test | without uv"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+
+      - name: "Install mold"
+        run: ./scripts/install-mold.sh
+
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ needs.plan.outputs.save-rust-cache == 'true' }}
@@ -324,7 +330,7 @@ jobs:
           echo "::group::Test install uv with auto select"
           cargo llvm-cov nextest \
             --profile ci-core \
-            --cargo-profile fast-build \
+            --cargo-profile no-debug \
             --no-report \
             -E 'binary_id(prek::run) and test(run_basic)'
           echo "::endgroup::"
@@ -334,13 +340,13 @@ jobs:
             export PREK_UV_SOURCE=$source
             cargo llvm-cov nextest \
               --profile ci-core \
-              --cargo-profile fast-build \
+              --cargo-profile no-debug \
               --no-report \
               -E 'binary_id(prek::run) and test(run_basic)'
             echo "::endgroup::"
           done
 
-          cargo llvm-cov report --profile fast-build --lcov --output-path lcov.info
+          cargo llvm-cov report --profile no-debug --lcov --output-path lcov.info
 
       - name: "Upload coverage reports to Codecov"
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -364,8 +370,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+
+      - name: "Install mold"
         if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: ./scripts/install-mold.sh
+
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ needs.plan.outputs.save-rust-cache == 'true' }}
@@ -403,7 +412,7 @@ jobs:
             --lcov \
             --output-path lcov.info \
             --workspace \
-            --cargo-profile fast-build \
+            --cargo-profile no-debug \
             --profile ci-core \
             --features schemars \
             -E "${CI_CORE_FILTER}"
@@ -426,7 +435,7 @@ jobs:
           persist-credentials: false
 
       - name: Create Dev Drive
-        run: ${{ github.workspace }}/.github/scripts/setup-dev-drive.ps1
+        run: ${{ github.workspace }}/scripts/setup-dev-drive.ps1
 
       # actions/checkout does not let us clone into anywhere outside ${{ github.workspace }}, so we have to copy the clone...
       - name: Copy Git Repo to Dev Drive
@@ -475,7 +484,7 @@ jobs:
             --lcov `
             --output-path lcov.info `
             --workspace `
-            --cargo-profile fast-build `
+            --cargo-profile no-debug `
             --features schemars `
             --profile ci-core `
             -E $env:CI_CORE_FILTER
@@ -502,7 +511,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+      - name: "Install mold"
+        run: ./scripts/install-mold.sh
         if: ${{ matrix.os == 'ubuntu-latest' }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -528,7 +538,7 @@ jobs:
       - name: "Setup MSVC"
         if: ${{ matrix.os == 'windows-latest' && contains(format(' {0} ', matrix.languages), ' lua ') }}
         shell: pwsh
-        run: ./.github/scripts/setup-msvc.ps1
+        run: ./scripts/setup-msvc.ps1
 
       - name: "Install uv"
         if: ${{ contains(format(' {0} ', matrix.languages), ' python ') }}
@@ -672,7 +682,7 @@ jobs:
             --lcov \
             --output-path lcov.info \
             --workspace \
-            --cargo-profile fast-build \
+            --cargo-profile no-debug \
             --features schemars \
             --profile ci-language \
             -E "$NEXTEST_FILTER"
@@ -692,7 +702,7 @@ jobs:
             --lcov `
             --output-path lcov.info `
             --workspace `
-            --cargo-profile fast-build `
+            --cargo-profile no-debug `
             --features schemars `
             --profile ci-language `
             -E $env:NEXTEST_FILTER
