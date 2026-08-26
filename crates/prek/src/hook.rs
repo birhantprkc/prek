@@ -56,6 +56,7 @@ pub(crate) struct HookSpec {
     name: String,
     entry: String,
     language: Language,
+    language_overridden: bool,
     priority: Option<config::Priority>,
     groups: Option<Vec<String>>,
     options: HookOptions,
@@ -73,6 +74,7 @@ impl HookSpec {
         }
         if let Some(language) = &config.language {
             spec.language.clone_from(language);
+            spec.language_overridden = true;
         }
         if config.priority.is_some() {
             spec.priority.clone_from(&config.priority);
@@ -87,11 +89,16 @@ impl HookSpec {
 
     fn with_project_defaults(mut self, config: &Config) -> Self {
         let language = self.language;
-        if self.options.language_version.is_none() {
-            self.options.language_version = config
-                .default_language_version
-                .as_ref()
-                .and_then(|v| v.get(&language).cloned());
+        if let Some(default) = config
+            .default_language_version
+            .as_ref()
+            .and_then(|versions| versions.get(&language))
+        {
+            if let Some(language_version) = &mut self.options.language_version {
+                language_version.apply_defaults(default);
+            } else {
+                self.options.language_version = Some(default.clone());
+            }
         }
 
         if self
@@ -139,7 +146,7 @@ impl HookSpec {
 
         if !language.supports_language_version()
             && let Some(language_version) = &self.options.language_version
-            && language_version != "default"
+            && !language_version.is_default()
         {
             bail!(
                 "Hook specified `language_version: {language_version}` but the language `{language}` does not support toolchain installation for now"
@@ -169,6 +176,7 @@ impl From<ManifestHook> for HookSpec {
             name: hook.name,
             entry: hook.entry,
             language: hook.language,
+            language_overridden: false,
             priority: None,
             groups: None,
             options: hook.options,
@@ -183,6 +191,7 @@ impl From<LocalHook> for HookSpec {
             name: hook.name,
             entry: hook.entry,
             language: hook.language,
+            language_overridden: false,
             priority: hook.priority,
             groups: hook.groups,
             options: hook.options,
@@ -197,6 +206,7 @@ impl From<MetaHook> for HookSpec {
             name: hook.name,
             entry: String::new(),
             language: Language::System,
+            language_overridden: false,
             priority: hook.priority,
             groups: hook.groups,
             options: hook.options,
@@ -211,6 +221,7 @@ impl From<BuiltinHook> for HookSpec {
             name: hook.name,
             entry: hook.entry,
             language: Language::System,
+            language_overridden: false,
             priority: hook.priority,
             groups: hook.groups,
             options: hook.options,
@@ -347,6 +358,7 @@ pub(crate) struct Hook {
     pub name: String,
     pub entry: HookEntry,
     pub language: Language,
+    pub(crate) language_overridden: bool,
     pub alias: String,
     pub files: Option<FilePattern>,
     pub exclude: Option<FilePattern>,
@@ -398,6 +410,7 @@ impl Hook {
             name,
             entry: raw_entry,
             language,
+            language_overridden,
             priority,
             groups,
             options,
@@ -436,8 +449,7 @@ impl Hook {
             _unused_keys: _,
         } = options;
 
-        let language_version = language_version.unwrap_or_default();
-        let language_request = LanguageRequest::parse(language, &language_version)
+        let language_request = LanguageRequest::from_config(language, language_version.as_ref())
             .map_err(|error| hook_error(&id, error))?;
         let entry = HookEntry::new(id.clone(), raw_entry, shell);
 
@@ -449,6 +461,7 @@ impl Hook {
             name,
             entry,
             language,
+            language_overridden,
             alias: alias.unwrap_or_default(),
             files,
             exclude,
@@ -564,13 +577,9 @@ impl HookEnvRequirement {
             return Ok(None);
         }
 
-        let language_version = hook_spec
-            .options
-            .language_version
-            .as_deref()
-            .unwrap_or_default();
-        let language_request = LanguageRequest::parse(language, language_version)
-            .with_context(|| format!("Invalid language_version for hook `{}`", hook_spec.id))?;
+        let language_request =
+            LanguageRequest::from_config(language, hook_spec.options.language_version.as_ref())
+                .with_context(|| format!("Invalid language_version for hook `{}`", hook_spec.id))?;
         let dependencies = hook_spec
             .options
             .additional_dependencies
@@ -805,10 +814,11 @@ mod tests {
     use serde_json::json;
 
     use crate::config::{
-        Config, HookOptions, Language, ManifestHook, PassFilenames, Priority, RemoteHook, Shell,
-        Stage, Stages,
+        Config, HookOptions, Language, LanguageVersion, ManifestHook, PassFilenames, Priority,
+        RemoteHook, Shell, Stage, Stages,
     };
     use crate::hook::HookSpec;
+    use crate::hooks::check_fast_path;
     use crate::languages::version::LanguageRequest;
     use crate::workspace::Project;
 
@@ -899,7 +909,13 @@ mod tests {
                     default_install_hook_types: None,
                     default_language_version: Some(
                         {
-                            Python: "python3.12",
+                            Python: LanguageVersion {
+                                request: Explicit(
+                                    "python3.12",
+                                ),
+                                preference: None,
+                                allows_download: true,
+                            },
                         },
                     ),
                     default_stages: Some(
@@ -933,6 +949,7 @@ mod tests {
                 },
             ),
             language: Python,
+            language_overridden: false,
             alias: "alias-1",
             files: None,
             exclude: None,
@@ -963,6 +980,7 @@ mod tests {
                         12,
                     ),
                 ),
+                preference: Managed,
                 allows_download: true,
             },
             log_file: None,
@@ -978,6 +996,39 @@ mod tests {
         }
         "#);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn explicit_language_override_uses_pinned_remote_hook() -> Result<()> {
+        let (temp, project) = setup_hook_test()?;
+        let repo = Arc::new(Repo::Remote {
+            path: temp.path().join("remote-repo"),
+            url: "https://github.com/pre-commit/pre-commit-hooks".to_string(),
+            rev: "v6.0.0".to_string(),
+            hooks: vec![],
+        });
+        let manifest_hook = ManifestHook {
+            id: "check-yaml".to_string(),
+            name: "check yaml".to_string(),
+            entry: "check-yaml".to_string(),
+            language: Language::Python,
+            options: HookOptions::default(),
+        };
+        let hook_override = RemoteHook {
+            id: "check-yaml".to_string(),
+            name: None,
+            entry: None,
+            language: Some(Language::Python),
+            priority: None,
+            groups: None,
+            options: HookOptions::default(),
+        };
+
+        let hook_spec = HookSpec::from_remote(manifest_hook, &hook_override);
+        let hook = Hook::from_spec(project, repo, hook_spec, 0).await?;
+
+        assert!(!check_fast_path(&hook));
         Ok(())
     }
 
@@ -998,6 +1049,7 @@ mod tests {
             name: "test-hook".to_string(),
             entry: "python3 -c 'print(1)'".to_string(),
             language: Language::Python,
+            language_overridden: false,
             priority: None,
             groups: None,
             options: HookOptions {
@@ -1021,6 +1073,7 @@ mod tests {
             name: "test-hook".to_string(),
             entry: "python3 -c 'print(1)'".to_string(),
             language: Language::Python,
+            language_overridden: false,
             priority: None,
             groups: None,
             options: HookOptions::default(),
@@ -1029,6 +1082,41 @@ mod tests {
         let hook_spec = hook_spec.with_project_defaults(&config);
 
         assert_eq!(hook_spec.options.stages, Some(Stages::ALL));
+    }
+
+    #[test]
+    fn hook_spec_with_project_defaults_merges_language_version_fields() {
+        let config: Config = serde_saphyr::from_str(indoc::indoc! {r"
+            repos: []
+            default_language_version:
+              python:
+                request: '3.12'
+                preference: only-managed
+        "})
+        .expect("config should parse");
+        let language_version: LanguageVersion =
+            serde_saphyr::from_str("preference: system\n").expect("version should parse");
+        let hook_spec = HookSpec {
+            id: "test-hook".to_string(),
+            name: "test-hook".to_string(),
+            entry: "python -m test".to_string(),
+            language: Language::Python,
+            language_overridden: false,
+            priority: None,
+            groups: None,
+            options: HookOptions {
+                language_version: Some(language_version),
+                ..Default::default()
+            },
+        }
+        .with_project_defaults(&config);
+
+        let language_version = hook_spec.options.language_version.as_ref().unwrap();
+        assert_eq!(language_version.request(), Some("3.12"));
+        assert_eq!(
+            language_version.preference(),
+            crate::config::ToolchainPreference::System
+        );
     }
 
     #[tokio::test]
@@ -1048,6 +1136,7 @@ mod tests {
             name: "test-hook".to_string(),
             entry: "python3 -c 'print(1)'".to_string(),
             language: Language::Python,
+            language_overridden: false,
             priority: None,
             groups: None,
             options: HookOptions::default(),
@@ -1076,6 +1165,7 @@ mod tests {
             name: "test-hook".to_string(),
             entry: "python3 -c 'print(1)'".to_string(),
             language: Language::Python,
+            language_overridden: false,
             priority: None,
             groups: None,
             options: HookOptions::default(),
@@ -1105,6 +1195,7 @@ mod tests {
             name: "test-hook".to_string(),
             entry: "python3 -c 'print(1)'".to_string(),
             language: Language::Python,
+            language_overridden: false,
             priority: None,
             groups: None,
             options: HookOptions {
@@ -1141,6 +1232,7 @@ mod tests {
             name: "test-hook".to_string(),
             entry: "./hook.py".to_string(),
             language: Language::Python,
+            language_overridden: false,
             priority: None,
             groups: None,
             options: HookOptions {
@@ -1237,6 +1329,36 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn toolchain_preferences_do_not_affect_existing_environment_reuse() -> Result<()> {
+        let dependencies = Vec::new();
+        let install_info: InstallInfo = serde_json::from_value(json!({
+            "schema_version": INSTALL_INFO_SCHEMA_VERSION,
+            "language": "python",
+            "language_version": "3.12.0",
+            "dependencies": [],
+            "env_path": "/tmp/python-env",
+            "toolchain": "/usr/bin/python3",
+            "extra": {},
+        }))?;
+
+        for preference in ["only-managed", "managed", "system", "only-system"] {
+            let language_version: LanguageVersion =
+                serde_saphyr::from_str(&format!("preference: {preference}\n"))?;
+            let language_request =
+                LanguageRequest::from_config(Language::Python, Some(&language_version))?;
+            let requirement = HookEnvRequirementRef {
+                language: Language::Python,
+                repo: None,
+                dependencies: &dependencies,
+                language_request: &language_request,
+            };
+
+            assert!(requirement.is_satisfied_by(&install_info), "{preference}");
+        }
+        Ok(())
+    }
+
     /// Set up a temporary directory with a minimal `.pre-commit-config.yaml`
     /// and a `remote-repo` subdirectory.
     fn setup_hook_test() -> Result<(tempfile::TempDir, Arc<Project>)> {
@@ -1275,10 +1397,11 @@ mod tests {
             name: "test-hook".to_string(),
             entry: entry.to_string(),
             language,
+            language_overridden: false,
             priority: None,
             groups: None,
             options: HookOptions {
-                language_version: language_version.map(str::to_string),
+                language_version: language_version.map(LanguageVersion::from),
                 ..Default::default()
             },
         };
@@ -1383,7 +1506,7 @@ mod tests {
             hook.language_request.version_request(),
             expected.version_request()
         );
-        assert!(!hook.language_request.allows_download());
+        assert!(!hook.language_request.toolchain_policy().allows_download());
         Ok(())
     }
 
@@ -1441,7 +1564,7 @@ mod tests {
             hook.language_request.version_request(),
             expected.version_request()
         );
-        assert!(!hook.language_request.allows_download());
+        assert!(!hook.language_request.toolchain_policy().allows_download());
         Ok(())
     }
 }

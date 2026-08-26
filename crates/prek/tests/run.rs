@@ -2027,75 +2027,24 @@ fn global_path_options_expand_tilde() -> Result<()> {
     let context = TestEnv::new_without_git();
     let cd = context.home_dir().child("project");
     cd.create_dir_all()?;
+    context.git_at(&cd).arg("init").assert().success();
+    context
+        .home_dir()
+        .child("prek.toml")
+        .write_str("repos = []\n")?;
 
     cmd_snapshot!(context, context
-        .command()
-        .arg("--show-settings")
+        .list()
         .arg("--config=~/prek.toml")
         .arg("--cd=~/project")
         .env("HOME", context.home_dir().path())
-        .env("USERPROFILE", context.home_dir().path()), @r#"
+        .env("USERPROFILE", context.home_dir().path()), @r"
     success: true
     exit_code: 0
     ----- stdout -----
-    GlobalArgs {
-        config: Some(
-            "[HOME]/prek.toml",
-        ),
-        cd: Some(
-            "[HOME]/project",
-        ),
-        color: Auto,
-        refresh: false,
-        help: (),
-        no_progress: false,
-        quiet: 0,
-        verbose: 0,
-        log_file: None,
-        no_log_file: false,
-        version: (),
-        show_settings: true,
-    }
-    RunArgs {
-        options: RunOptions {
-            includes: [],
-            skips: [],
-            file_selection: FileSelectionArgs {
-                all_files: false,
-                files: [],
-                glob: [],
-                directory: [],
-                from_ref: None,
-                to_ref: None,
-                last_commit: false,
-            },
-            show_diff_on_failure: false,
-            fail_fast: false,
-            no_fail_fast: false,
-            dry_run: false,
-            extra: RunExtraArgs {
-                remote_branch: None,
-                local_branch: None,
-                pre_rebase_upstream: None,
-                pre_rebase_branch: None,
-                commit_msg_filename: None,
-                prepare_commit_message_source: None,
-                commit_object_name: None,
-                remote_name: None,
-                remote_url: None,
-                checkout_type: None,
-                is_squash_merge: false,
-                rewrite_command: None,
-            },
-        },
-        stage: None,
-        groups: [],
-        required_groups: [],
-        no_groups: [],
-    }
 
     ----- stderr -----
-    "#);
+    ");
 
     Ok(())
 }
@@ -4199,7 +4148,7 @@ fn system_language_version() {
     cmd_snapshot!(context,
         context.run()
         .arg("system-node")
-        .env(EnvVars::PREK_INTERNAL__NODE_BINARY_NAME, "node-never-exist"), @r"
+        .env(EnvVars::PREK_INTERNAL__NODE_BINARY_NAME, "node-never-exist"), @r#"
     success: false
     exit_code: 2
     ----- stdout -----
@@ -4207,13 +4156,13 @@ fn system_language_version() {
     ----- stderr -----
     error: Failed to install hook `system-node`
       caused by: Failed to install node
-      caused by: No suitable system Node version found and downloads are disabled
-    ");
+      caused by: No suitable Node version found for toolchain policy: managed (downloads disabled)
+    "#);
 
     cmd_snapshot!(context,
         context.run()
         .arg("system-go")
-        .env(EnvVars::PREK_INTERNAL__GO_BINARY_NAME, "go-never-exist"), @r"
+        .env(EnvVars::PREK_INTERNAL__GO_BINARY_NAME, "go-never-exist"), @r#"
     success: false
     exit_code: 2
     ----- stdout -----
@@ -4221,13 +4170,13 @@ fn system_language_version() {
     ----- stderr -----
     error: Failed to install hook `system-go`
       caused by: Failed to install go
-      caused by: No suitable system Go version found and downloads are disabled
-    ");
+      caused by: No suitable Go version found for toolchain policy: managed (downloads disabled)
+    "#);
 
     cmd_snapshot!(context,
         context.run()
         .arg("system-bun")
-        .env(EnvVars::PREK_INTERNAL__BUN_BINARY_NAME, "bun-never-exist"), @r"
+        .env(EnvVars::PREK_INTERNAL__BUN_BINARY_NAME, "bun-never-exist"), @r#"
     success: false
     exit_code: 2
     ----- stdout -----
@@ -4235,13 +4184,13 @@ fn system_language_version() {
     ----- stderr -----
     error: Failed to install hook `system-bun`
       caused by: Failed to install bun
-      caused by: No suitable system Bun version found and downloads are disabled
-    ");
+      caused by: No suitable Bun version found for toolchain policy: managed (downloads disabled)
+    "#);
 
     cmd_snapshot!(context,
         context.run()
         .arg("system-dotnet")
-        .env(EnvVars::PREK_INTERNAL__DOTNET_BINARY_NAME, "dotnet-never-exist"), @"
+        .env(EnvVars::PREK_INTERNAL__DOTNET_BINARY_NAME, "dotnet-never-exist"), @r#"
     success: false
     exit_code: 2
     ----- stdout -----
@@ -4249,8 +4198,8 @@ fn system_language_version() {
     ----- stderr -----
     error: Failed to install hook `system-dotnet`
       caused by: Failed to install dotnet SDK
-      caused by: No suitable dotnet version found and downloads are disabled
-    ");
+      caused by: No suitable dotnet version found for toolchain policy: managed (downloads disabled)
+    "#);
 }
 
 /// Tests that empty `entry` field.
