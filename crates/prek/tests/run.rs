@@ -938,6 +938,59 @@ fn run_group_without_stage_selects_hooks_across_stages() {
 }
 
 #[test]
+fn run_ungrouped_group_selects_hooks_without_groups() {
+    let context = TestEnv::new().with_config(indoc::indoc! {r#"
+        repos:
+          - repo: local
+            hooks:
+              - id: ungrouped
+                name: Ungrouped
+                language: system
+                entry: python3 -c "print('ungrouped')"
+                always_run: true
+              - id: ci
+                name: CI
+                language: system
+                entry: python3 -c "print('ci')"
+                always_run: true
+                groups: [ci]
+              - id: other
+                name: Other
+                language: system
+                entry: python3 -c "print('other')"
+                always_run: true
+                groups: [other]
+
+          - repo: https://notexistentatallnevergonnahappen.com/nonexistent/repo
+            rev: v1.0.0
+            hooks:
+              - id: remote-other
+                groups: [other]
+    "#});
+
+    context.git_add_all();
+
+    cmd_snapshot!(context,
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--group")
+            .arg("ci")
+            .arg("--group")
+            .arg("@ungrouped"),
+        @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    Ungrouped................................................................Passed
+    CI.......................................................................Passed
+
+    ----- stderr -----
+    "#
+    );
+}
+
+#[test]
 fn run_required_group_without_stage_warns_when_only_message_file_hooks_match() {
     let context = TestEnv::new().with_config(indoc::indoc! {r#"
         repos:
@@ -1183,7 +1236,7 @@ fn run_unknown_group_selectors_warn_and_empty_selection_fails() {
 }
 
 #[test]
-fn run_group_selectors_reject_whitespace() {
+fn run_group_selectors_reject_invalid_names() {
     let context = TestEnv::new().with_config(indoc::indoc! {r#"
         repos:
           - repo: local
@@ -1216,6 +1269,16 @@ fn run_group_selectors_reject_whitespace() {
     ----- stderr -----
     error: Invalid group selector: `--no-group=ci slow`
       caused by: group name cannot contain whitespace
+    "#);
+
+    cmd_snapshot!(context, context.run().arg("--all-files").arg("--group").arg("@custom"), @r#"
+    success: false
+    exit_code: 2
+    ----- stdout -----
+
+    ----- stderr -----
+    error: Invalid group selector: `--group=@custom`
+      caused by: group name uses the reserved `@` prefix
     "#);
 }
 
@@ -3383,7 +3446,7 @@ fn selectors_completion() -> Result<()> {
     // Unrelated non-project dir should not appear in subdir suggestions
     cwd.child("scratch").create_dir_all()?;
 
-    cmd_snapshot!(context, context.run().env("COMPLETE", "fish").arg("--").arg("prek").arg(""), @"
+    cmd_snapshot!(context, context.run().env("COMPLETE", "fish").arg("--").arg("prek").arg(""), @r#"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -3408,6 +3471,10 @@ fn selectors_completion() -> Result<()> {
     :lint:ruff	Ruff Lint
     root-hook	Root Hook
     --skip	Skip the specified hooks or projects
+    --stage	The stage during which the hook is fired
+    --group	Run hooks belonging to the specified group
+    --require-group	Run hooks belonging to every specified group
+    --no-group	Do not run hooks belonging to the specified group
     --all-files	Run hooks on all tracked files in the repository
     --files	Run hooks on the specified file paths
     --glob	Run hooks on tracked files matching the specified glob pattern
@@ -3418,10 +3485,6 @@ fn selectors_completion() -> Result<()> {
     --show-diff-on-failure	When hooks fail, run `git diff` directly afterward
     --fail-fast	Stop running hooks after the first failure
     --dry-run	Do not run the hooks, but print the hooks that would have been run
-    --stage	The stage during which the hook is fired
-    --group	Run hooks belonging to the specified group
-    --require-group	Run hooks belonging to every specified group
-    --no-group	Do not run hooks belonging to the specified group
     --config	Path to alternate config file
     --cd	Change to directory before running
     --color	Whether to use color in output
@@ -3434,7 +3497,7 @@ fn selectors_completion() -> Result<()> {
     --version	Display the prek version
 
     ----- stderr -----
-    ");
+    "#);
 
     cmd_snapshot!(context, context.run().env("COMPLETE", "fish").arg("--").arg("prek").arg("."), @r"
     success: true
@@ -3553,7 +3616,8 @@ fn reuse_env() -> Result<()> {
         .child("local_pkg.py")
         .write_str("def hello():\n     print('hello')\n")?;
 
-    let context = context.with_config(indoc::indoc! {r#"
+    let dependency = serde_json::to_string(&std::path::absolute(pkg_dir.path())?)?;
+    let context = context.with_config(indoc::formatdoc! {r#"
     repos:
       - repo: local
         hooks:
@@ -3562,7 +3626,7 @@ fn reuse_env() -> Result<()> {
             language: python
             entry: python -c "import local_pkg; local_pkg.hello()"
             pass_filenames: false
-            additional_dependencies: ["./local_pkg"]
+            additional_dependencies: [{dependency}]
             verbose: true
     "#});
     context.git_add_all();

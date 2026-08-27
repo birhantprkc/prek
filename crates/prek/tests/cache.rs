@@ -49,10 +49,14 @@ fn cache_gc_verbose_shows_removed_entries() {
     home.child("hooks/hook-env-dead/.prek-hook.json")
         .write_str(
             &serde_json::to_string_pretty(&json!({
+                "schema_version": 1,
                 "language": "python",
                 "language_version": "3.12.0",
+                "repo": {
+                    "url": "https://example.com/repo",
+                    "rev": "v1.0.0",
+                },
                 "dependencies": [
-                    "https://example.com/repo@v1.0.0",
                     "dep1",
                     "dep2",
                     "dep3",
@@ -100,63 +104,6 @@ fn cache_gc_verbose_shows_removed_entries() {
 
     ----- stderr -----
     ");
-}
-
-#[test]
-fn cache_gc_removes_legacy_hook_env_when_config_matches() -> anyhow::Result<()> {
-    let context = TestEnv::new_without_git().with_config(indoc::indoc! {r#"
-        repos:
-          - repo: local
-            hooks:
-              - id: local-python
-                name: Local Python Hook
-                entry: "python -c \"print(1)\""
-                language: python
-    "#});
-
-    let home = context.home_dir();
-    let config_path = context.work_dir().child(PRE_COMMIT_CONFIG_YAML);
-    write_config_tracking_file(home, &[config_path.path()])?;
-    let legacy_env = home.child("hooks/python-legacy");
-    let current_env = home.child("hooks/python-current");
-    legacy_env.create_dir_all()?;
-    current_env.create_dir_all()?;
-
-    legacy_env
-        .child(".prek-hook.json")
-        .write_str(&serde_json::to_string_pretty(&json!({
-            "language": "python",
-            "language_version": "3.12.0",
-            "dependencies": [],
-            "env_path": legacy_env.path(),
-            "toolchain": "/usr/bin/python3",
-            "extra": {},
-        }))?)?;
-    current_env
-        .child(".prek-hook.json")
-        .write_str(&serde_json::to_string_pretty(&json!({
-            "schema_version": 1,
-            "language": "python",
-            "language_version": "3.12.0",
-            "dependencies": [],
-            "env_path": current_env.path(),
-            "toolchain": "/usr/bin/python3",
-            "extra": {},
-        }))?)?;
-
-    cmd_snapshot!(context, context.command().args(["cache", "gc"]), @r"
-    success: true
-    exit_code: 0
-    ----- stdout -----
-    Removed 1 hook env ([SIZE])
-
-    ----- stderr -----
-    ");
-
-    legacy_env.assert(predicates::path::missing());
-    current_env.assert(predicates::path::is_dir());
-
-    Ok(())
 }
 
 #[test]
@@ -806,72 +753,6 @@ fn write_patch_file(path: &ChildPath, content: &str, modified: SystemTime) -> an
         .write(true)
         .open(path.path())?
         .set_modified(modified)?;
-    Ok(())
-}
-
-fn write_workspace_cache_file(
-    home: &ChildPath,
-    workspace_root: &std::path::Path,
-) -> anyhow::Result<()> {
-    use std::hash::{Hash as _, Hasher as _};
-    use std::time::SystemTime;
-
-    let config_path = workspace_root.join(PRE_COMMIT_CONFIG_YAML);
-    let metadata = fs_err::metadata(&config_path)?;
-    let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-    let size = metadata.len();
-
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    workspace_root.hash(&mut hasher);
-    let digest = hex::encode(hasher.finish().to_le_bytes());
-
-    let cache_path = home.child("cache/prek/workspace").child(digest);
-    let parent = cache_path.parent().expect("cache path has parent");
-    fs_err::create_dir_all(parent)?;
-
-    let content = json!({
-        "version": 1u32,
-        "workspace_root": workspace_root,
-        "created_at": serde_json::to_value(SystemTime::now())?,
-        "config_files": [
-            {
-                "path": config_path,
-                "modified": serde_json::to_value(modified)?,
-                "size": size,
-            }
-        ],
-    });
-
-    cache_path.write_str(&serde_json::to_string_pretty(&content)?)?;
-    Ok(())
-}
-
-#[test]
-fn cache_gc_bootstraps_tracking_from_workspace_cache() -> anyhow::Result<()> {
-    let context = TestEnv::new().with_config("repos: []\n");
-    context.git_add_all();
-
-    let home = context.home_dir();
-    write_workspace_cache_file(home, context.work_dir().path())?;
-
-    // Seed store entries that should be swept, even if `config-tracking.json` is missing.
-    home.child("repos/deadbeef").create_dir_all()?;
-    home.child("hooks/hook-env-dead").create_dir_all()?;
-
-    cmd_snapshot!(context, context.command().arg("cache").arg("gc"), @r#"
-    success: true
-    exit_code: 0
-    ----- stdout -----
-    Removed 1 repo, 1 hook env ([SIZE])
-
-    ----- stderr -----
-    "#);
-
-    home.child("repos/deadbeef")
-        .assert(predicates::path::missing());
-    home.child("hooks/hook-env-dead")
-        .assert(predicates::path::missing());
-
     Ok(())
 }
 

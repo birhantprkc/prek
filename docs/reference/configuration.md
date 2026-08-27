@@ -43,10 +43,6 @@ The cooldown age is computed from the tag creation timestamp for annotated tags,
 
     If the current `rev` is newer than the latest cooldown-eligible tag, [`prek update`](cli.md#prek-update) keeps the current `rev` instead of downgrading it.
 
-!!! note "Compatibility alias"
-
-    The legacy `auto_update` key is still accepted as an alias for `update`.
-
 ## Extension keys (`x-`)
 
 Any key starting with `x-` (a lowercase `x` followed by a hyphen) is silently ignored by `prek` at any level of the configuration. This supports custom metadata without triggering unexpected key warnings.
@@ -410,10 +406,6 @@ Each project-level field overrides the corresponding [global `update`](#global-u
 CLI filters have the highest precedence. `--include-tag` and `--exclude-tag` replace the configured effective defaults; `--repo-include-tag` then replaces the include filters for its named repository, while `--repo-exclude-tag` adds excludes for its named repository.
 
 In workspace mode, `update` is scoped to the project config file that defines it and is not inherited by nested projects. Sub-projects use their own `update`, then the user-level global config, then built-in defaults. Repositories shared by multiple projects are fetched once but evaluated with each project's cooldown, freeze, and tag-filter settings.
-
-!!! note "Compatibility alias"
-
-    The legacy `auto_update` key is still accepted as an alias for `update`.
 
 ### `minimum_prek_version`
 
@@ -1159,7 +1151,13 @@ Tag a hook with user-defined run groups.
 Groups are arbitrary labels used by [`prek run --group <group>`](cli.md#prek-run--group),
 [`prek run --require-group <group>`](cli.md#prek-run--require-group), and
 [`prek run --no-group <group>`](cli.md#prek-run--no-group).
-Group names cannot be empty or contain whitespace.
+Group names cannot be empty, contain whitespace, or start with `@`. Names that
+start with `@` are reserved for special selectors:
+
+- `@ungrouped` matches hooks whose effective `groups` list is empty.
+
+This selector works with `--group`, `--require-group`, and `--no-group`. It is a
+virtual membership and cannot be added to a hook's `groups` list.
 
 `groups` is a project configuration field. If it appears in a remote
 `.pre-commit-hooks.yaml` manifest, `prek` ignores it.
@@ -1212,6 +1210,12 @@ Run only the `ci` group:
 
 ```bash
 prek run --all-files --group ci
+```
+
+Run the `ci` group together with ungrouped hooks:
+
+```bash
+prek run --all-files --group ci --group @ungrouped
 ```
 
 Run only hooks belonging to both `lint` and `ci`:
