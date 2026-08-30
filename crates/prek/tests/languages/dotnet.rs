@@ -1,15 +1,13 @@
-use assert_fs::fixture::{FileWriteStr, PathChild, PathCreateDir};
+#[cfg(feature = "ci")]
+use assert_fs::fixture::PathChild;
+#[cfg(feature = "ci")]
 use prek_consts::PRE_COMMIT_HOOKS_YAML;
-use prek_consts::env_vars::{EnvVars, EnvVarsRead};
 
 use crate::common::{TestEnv, cmd_snapshot};
 
+#[cfg(feature = "ci")]
 #[test]
 fn language_version() {
-    if !EnvVars.is_set(EnvVars::CI) {
-        return;
-    }
-
     let context = TestEnv::new_git().with_config(indoc::indoc! {r"
         repos:
           - repo: local
@@ -120,12 +118,9 @@ fn invalid_language_version() {
 
 /// Test that multiple different SDK versions can coexist in the tool store.
 /// `net10.0` is preinstalled in the CI, `net8.0` will be installed by the test.
+#[cfg(feature = "ci")]
 #[test]
 fn multiple_sdk_versions() -> anyhow::Result<()> {
-    if !EnvVars.is_set(EnvVars::CI) {
-        return Ok(());
-    }
-
     let context = TestEnv::new_git().with_config(indoc::indoc! {r"
         repos:
           - repo: local
@@ -196,12 +191,9 @@ fn multiple_sdk_versions() -> anyhow::Result<()> {
 }
 
 /// Test installing a specific version of a dotnet tool.
+#[cfg(feature = "ci")]
 #[test]
 fn additional_dependencies_with_version() {
-    if !EnvVars.is_set(EnvVars::CI) {
-        return;
-    }
-
     let context = TestEnv::new_git().with_config(indoc::indoc! {r#"
         repos:
           - repo: local
@@ -250,27 +242,24 @@ fn additional_dependencies_with_version() {
 }
 
 /// Test that additional dependencies in a remote repo are installed correctly.
+#[cfg(feature = "ci")]
 #[test]
-fn additional_dependencies_in_remote_repo() -> anyhow::Result<()> {
-    if !EnvVars.is_set(EnvVars::CI) {
-        return Ok(());
-    }
-
+fn additional_dependencies_in_remote_repo() {
     let context = TestEnv::new_git();
-    let repo = context.create_repo("dotnet-hook");
+    let repo = context.create_repo("dotnet-hook").with_file(
+        PRE_COMMIT_HOOKS_YAML,
+        indoc::indoc! {r#"
+            - id: dotnet-outdated
+              name: dotnet-outdated
+              language: dotnet
+              entry: dotnet-outdated --version
+              additional_dependencies: ["dotnet-outdated-tool:4.7.1"]
+        "#},
+    );
     let repo_path = repo.path();
-    repo_path
-        .child(PRE_COMMIT_HOOKS_YAML)
-        .write_str(indoc::indoc! {r#"
-        - id: dotnet-outdated
-          name: dotnet-outdated
-          language: dotnet
-          entry: dotnet-outdated --version
-          additional_dependencies: ["dotnet-outdated-tool:4.7.1"]
-    "#})?;
     repo.git().add_all().commit("Add manifest").tag("v0.1.0");
 
-    let context = context.with_config(indoc::formatdoc! {r"
+    context.write_config(indoc::formatdoc! {r"
         repos:
           - repo: {}
             rev: v0.1.0
@@ -297,18 +286,14 @@ fn additional_dependencies_in_remote_repo() -> anyhow::Result<()> {
 
     ----- stderr -----
     ");
-
-    Ok(())
 }
 
 /// Ensure that stderr from hooks is captured and shown to the user.
+#[cfg(feature = "ci")]
 #[test]
-fn hook_stderr() -> anyhow::Result<()> {
-    if !EnvVars.is_set(EnvVars::CI) {
-        return Ok(());
-    }
-
-    let context = TestEnv::new_git().with_config(indoc::indoc! {r"
+fn hook_stderr() {
+    let context = TestEnv::new_git()
+        .with_config(indoc::indoc! {r"
         repos:
           - repo: local
             hooks:
@@ -316,14 +301,10 @@ fn hook_stderr() -> anyhow::Result<()> {
                 name: local
                 language: dotnet
                 entry: dotnet run --project ./hook
-    "});
-
-    // Create a minimal console app that writes to stderr
-    context.work_dir().child("hook").create_dir_all()?;
-    context
-        .work_dir()
-        .child("hook/hook.csproj")
-        .write_str(indoc::indoc! {r#"
+    "})
+        .with_file(
+            "hook/hook.csproj",
+            indoc::indoc! {r#"
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
             <OutputType>Exe</OutputType>
@@ -331,16 +312,17 @@ fn hook_stderr() -> anyhow::Result<()> {
             <ImplicitUsings>disable</ImplicitUsings>
           </PropertyGroup>
         </Project>
-    "#})?;
-    context
-        .work_dir()
-        .child("hook/Program.cs")
-        .write_str(indoc::indoc! {r#"
+    "#},
+        )
+        .with_file(
+            "hook/Program.cs",
+            indoc::indoc! {r#"
         using System;
         Console.Error.WriteLine("Error from hook");
         Console.Error.Flush();
         Environment.Exit(1);
-    "#})?;
+    "#},
+        );
 
     context.git().add_all();
 
@@ -356,6 +338,4 @@ fn hook_stderr() -> anyhow::Result<()> {
 
     ----- stderr -----
     ");
-
-    Ok(())
 }

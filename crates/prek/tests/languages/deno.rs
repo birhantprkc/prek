@@ -1,6 +1,8 @@
+#[cfg(feature = "ci")]
 use assert_fs::assert::PathAssert;
-use assert_fs::fixture::{FileWriteStr, PathChild};
-use prek_consts::env_vars::{EnvVars, EnvVarsRead};
+#[cfg(feature = "ci")]
+use assert_fs::fixture::PathChild;
+use prek_consts::env_vars::EnvVars;
 
 use crate::common::{TestEnv, cmd_snapshot};
 
@@ -39,18 +41,14 @@ fn basic_deno() {
 /// Test running a TypeScript script file with an explicit `deno run` entry.
 #[test]
 fn script_file() {
-    let context = TestEnv::new_git();
-
-    // Create a TypeScript script
-    context
-        .work_dir()
-        .child("check.ts")
-        .write_str(indoc::indoc! {r#"
+    let context = TestEnv::new_git()
+        .with_file(
+            "check.ts",
+            indoc::indoc! {r#"
             console.log("Script executed successfully!");
-        "#})
-        .expect("Failed to write check.ts");
-
-    let context = context.with_config(indoc::indoc! {r"
+        "#},
+        )
+        .with_config(indoc::indoc! {r"
         repos:
           - repo: local
             hooks:
@@ -82,19 +80,15 @@ fn script_file() {
 /// Test running Deno built-in subcommands with an explicit `deno` prefix.
 #[test]
 fn builtin_commands() {
-    let context = TestEnv::new_git();
-
-    // Create a TypeScript file for formatting check
-    context
-        .work_dir()
-        .child("example.ts")
-        .write_str(indoc::indoc! {r"
+    let context = TestEnv::new_git()
+        .with_file(
+            "example.ts",
+            indoc::indoc! {r"
         const x = 1;
         console.log(x);
-    "})
-        .expect("Failed to write example.ts");
-
-    let context = context.with_config(indoc::indoc! {r"
+    "},
+        )
+        .with_config(indoc::indoc! {r"
         repos:
           - repo: local
             hooks:
@@ -260,17 +254,17 @@ fn additional_dependencies() {
 /// Test that an absolute file can be installed as an executable additional dependency.
 #[test]
 fn additional_dependencies_absolute_file() {
-    let context = TestEnv::new_git();
-
-    let tool = context.work_dir().child("tool.ts");
-    tool.write_str(indoc::indoc! {r#"
+    let context = TestEnv::new_git().with_file(
+        "tool.ts",
+        indoc::indoc! {r#"
             console.log("Hello from local additional dependency!");
-        "#})
-        .expect("Failed to write tool.ts");
+        "#},
+    );
+    let tool = context.child("tool.ts");
     let dependency = serde_json::to_string(&format!("{}:echo-tool", tool.path().display()))
         .expect("Failed to serialize Deno dependency");
 
-    let context = context.with_config(indoc::formatdoc! {r"
+    context.write_config(indoc::formatdoc! {r"
         repos:
           - repo: local
             hooks:
@@ -302,13 +296,9 @@ fn additional_dependencies_absolute_file() {
 
 /// Test `language_version` specification and deno installation.
 /// In CI, we ensure deno 2.x is installed via setup-deno action.
+#[cfg(feature = "ci")]
 #[test]
 fn language_version() {
-    if !EnvVars.is_set(EnvVars::CI) {
-        // Skip when not running in CI, as we may have other deno versions installed locally.
-        return;
-    }
-
     let context = TestEnv::new_git().with_config(indoc::indoc! {r"
         repos:
           - repo: local
@@ -460,13 +450,9 @@ fn checksum_policy() {
 }
 
 /// Test semver range version specification.
+#[cfg(feature = "ci")]
 #[test]
 fn version_range() {
-    if !EnvVars.is_set(EnvVars::CI) {
-        // Skip when not running in CI.
-        return;
-    }
-
     let context = TestEnv::new_git().with_config(indoc::indoc! {r#"
         repos:
           - repo: local
@@ -502,20 +488,16 @@ fn version_range() {
 /// Test that hook failure is properly reported.
 #[test]
 fn hook_failure() {
-    let context = TestEnv::new_git();
-
-    // Create a TypeScript file with a lint error
-    context
-        .work_dir()
-        .child("bad.ts")
-        .write_str(indoc::indoc! {r"
+    let context = TestEnv::new_git()
+        .with_file(
+            "bad.ts",
+            indoc::indoc! {r"
         // This has a lint error: no-explicit-any
         let x: any = 1;
         console.log(x);
-    "})
-        .expect("Failed to write bad.ts");
-
-    let context = context.with_config(indoc::indoc! {r"
+    "},
+        )
+        .with_config(indoc::indoc! {r"
         repos:
           - repo: local
             hooks:
@@ -538,19 +520,15 @@ fn hook_failure() {
 /// Note: Permissions must come before the script in the entry, so use explicit `deno run`.
 #[test]
 fn script_with_permissions() {
-    let context = TestEnv::new_git();
-
-    // Create a script that reads an environment variable
-    context
-        .work_dir()
-        .child("read_env.ts")
-        .write_str(indoc::indoc! {r#"
+    // Permissions must be specified before the script path when using deno run.
+    let context = TestEnv::new_git()
+        .with_file(
+            "read_env.ts",
+            indoc::indoc! {r#"
         console.log(Deno.env.get("TEST_VAR") ?? "not set");
-    "#})
-        .expect("Failed to write read_env.ts");
-
-    // Permissions must be specified before the script path when using deno run
-    let context = context.with_config(indoc::indoc! {r"
+    "#},
+        )
+        .with_config(indoc::indoc! {r"
         repos:
           - repo: local
             hooks:

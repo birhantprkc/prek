@@ -1,13 +1,13 @@
 use assert_cmd::assert::OutputAssertExt;
-use assert_fs::fixture::{FileWriteStr, PathChild, PathCreateDir};
 use prek_consts::PRE_COMMIT_HOOKS_YAML;
 use prek_consts::env_vars::EnvVars;
 
 use crate::common::{TestEnv, cmd_snapshot};
 
 #[test]
-fn local_hook() -> anyhow::Result<()> {
-    let context = TestEnv::new_git().with_config(indoc::indoc! {r"
+fn local_hook() {
+    let context = TestEnv::new_git()
+        .with_config(indoc::indoc! {r"
         repos:
           - repo: local
             hooks:
@@ -18,17 +18,16 @@ fn local_hook() -> anyhow::Result<()> {
                 always_run: true
                 verbose: true
                 pass_filenames: false
-    "});
-
-    context
-        .work_dir()
-        .child("hello.pl")
-        .write_str(indoc::indoc! {r#"
+    "})
+        .with_file(
+            "hello.pl",
+            indoc::indoc! {r#"
             use strict;
             use warnings;
 
             print "Hello from Perl!\n";
-        "#})?;
+        "#},
+        );
 
     context.git().add_all();
 
@@ -44,29 +43,25 @@ fn local_hook() -> anyhow::Result<()> {
 
     ----- stderr -----
     ");
-
-    Ok(())
 }
 
 #[test]
-fn remote_repo_install() -> anyhow::Result<()> {
+fn remote_repo_install() {
     let context = TestEnv::new_git();
-    let hook_repo = context.create_repo("perl-hook");
-
-    hook_repo
-        .path()
-        .child(PRE_COMMIT_HOOKS_YAML)
-        .write_str(indoc::indoc! {r"
+    let hook_repo = context
+        .create_repo("perl-hook")
+        .with_file(
+            PRE_COMMIT_HOOKS_YAML,
+            indoc::indoc! {r"
             - id: hello
               name: hello
               language: perl
               entry: perl -MPrek::Hello -e 'Prek::Hello::hello()'
-        "})?;
-
-    hook_repo
-        .path()
-        .child("Makefile.PL")
-        .write_str(indoc::indoc! {r"
+        "},
+        )
+        .with_file(
+            "Makefile.PL",
+            indoc::indoc! {r"
             use strict;
             use warnings;
             use ExtUtils::MakeMaker;
@@ -75,19 +70,11 @@ fn remote_repo_install() -> anyhow::Result<()> {
                 NAME => 'Prek::Hello',
                 VERSION_FROM => 'lib/Prek/Hello.pm',
             );
-        "})?;
-
-    hook_repo
-        .path()
-        .child("lib")
-        .child("Prek")
-        .create_dir_all()?;
-    hook_repo
-        .path()
-        .child("lib")
-        .child("Prek")
-        .child("Hello.pm")
-        .write_str(indoc::indoc! {r#"
+        "},
+        )
+        .with_file(
+            "lib/Prek/Hello.pm",
+            indoc::indoc! {r#"
             package Prek::Hello;
 
             use strict;
@@ -100,7 +87,8 @@ fn remote_repo_install() -> anyhow::Result<()> {
             }
 
             1;
-        "#})?;
+        "#},
+        );
 
     hook_repo
         .git()
@@ -108,7 +96,7 @@ fn remote_repo_install() -> anyhow::Result<()> {
         .commit("Add perl hook")
         .tag("v1.0.0");
 
-    let context = context.with_config(indoc::formatdoc! {r"
+    context.write_config(indoc::formatdoc! {r"
         repos:
           - repo: {}
             rev: v1.0.0
@@ -133,8 +121,6 @@ fn remote_repo_install() -> anyhow::Result<()> {
 
     ----- stderr -----
     ");
-
-    Ok(())
 }
 
 #[test]

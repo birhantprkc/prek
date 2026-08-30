@@ -4,14 +4,13 @@ use prek_consts::PRE_COMMIT_HOOKS_YAML;
 use crate::common::{TestEnv, cmd_snapshot};
 
 #[test]
-fn local_hook() -> anyhow::Result<()> {
-    let context = TestEnv::new_git();
-    context
-        .work_dir()
-        .child(".Rprofile")
-        .write_str(r#"stop("project .Rprofile should not be loaded")"#)?;
+fn local_hook() {
+    let context = TestEnv::new_git().with_file(
+        ".Rprofile",
+        r#"stop("project .Rprofile should not be loaded")"#,
+    );
 
-    let context = context.with_config(indoc::indoc! {r#"
+    context.write_config(indoc::indoc! {r#"
         repos:
           - repo: local
             hooks:
@@ -52,8 +51,6 @@ fn local_hook() -> anyhow::Result<()> {
 
     ----- stderr -----
     ");
-
-    Ok(())
 }
 
 #[test]
@@ -61,10 +58,10 @@ fn local_hook_with_absolute_additional_dependency() -> anyhow::Result<()> {
     let context = TestEnv::new_git();
 
     write_local_r_package(context.work_dir(), "localdep")?;
-    let dependency_path = std::path::absolute(context.work_dir().child("localdep").path())?;
+    let dependency_path = std::path::absolute(context.child("localdep").path())?;
     let dependency = serde_json::to_string(&dependency_path)?;
 
-    let context = context.with_config(indoc::formatdoc! {r"
+    context.write_config(indoc::formatdoc! {r"
         repos:
           - repo: local
             hooks:
@@ -99,27 +96,24 @@ fn local_hook_with_absolute_additional_dependency() -> anyhow::Result<()> {
 #[test]
 fn remote_repo_install() -> anyhow::Result<()> {
     let context = TestEnv::new_git();
-    let hook_repo = context.create_repo("r-hook");
-
-    hook_repo
-        .path()
-        .child(PRE_COMMIT_HOOKS_YAML)
-        .write_str(indoc::indoc! {r"
+    let hook_repo = context
+        .create_repo("r-hook")
+        .with_file(
+            PRE_COMMIT_HOOKS_YAML,
+            indoc::indoc! {r"
             - id: r-remote
               name: r-remote
               language: r
               entry: Rscript hello.R
-        "})?;
-    hook_repo
-        .path()
-        .child("hello.R")
-        .write_str("localdep::hello()")?;
+        "},
+        )
+        .with_file("hello.R", "localdep::hello()");
     write_local_r_package(hook_repo.path(), "localdep")?;
     write_renv_project(hook_repo.path())?;
 
     hook_repo.git().add_all().commit("Add R hook").tag("v1.0.0");
 
-    let context = context.with_config(indoc::formatdoc! {r"
+    context.write_config(indoc::formatdoc! {r"
         repos:
           - repo: {}
             rev: v1.0.0

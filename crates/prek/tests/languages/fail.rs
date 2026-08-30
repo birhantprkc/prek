@@ -1,18 +1,11 @@
-use anyhow::Result;
-use assert_fs::prelude::*;
-
 use crate::common::{TestEnv, cmd_snapshot};
 
 /// GitHub Action only has docker for linux hosted runners.
 #[test]
-fn fail() -> Result<()> {
-    let context = TestEnv::new_git();
+fn fail() {
+    let context = TestEnv::new_git().with_file("changelog/changelog.md", "");
 
-    let cwd = context.work_dir();
-    cwd.child("changelog").create_dir_all()?;
-    cwd.child("changelog/changelog.md").touch()?;
-
-    let context = context.with_config(indoc::indoc! {r"
+    context.write_config(indoc::indoc! {r"
         repos:
           - repo: local
             hooks:
@@ -39,6 +32,4 @@ fn fail() -> Result<()> {
 
     ----- stderr -----
     ");
-
-    Ok(())
 }
