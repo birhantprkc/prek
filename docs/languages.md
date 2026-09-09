@@ -380,7 +380,7 @@ prek installs Julia hooks into an isolated environment using Julia's built-in pa
 
 The hook repository can include a `Project.toml` (or `JuliaProject.toml`) and optionally a `Manifest.toml` (or `JuliaManifest.toml`). If these files are present, prek will use them to instantiate the environment. If no project file is found, an empty one is created to ensure the environment is correctly initialized.
 
-`additional_dependencies` are supported and will be added to the environment via `Pkg.add`.
+`additional_dependencies` supports Julia's Pkg REPL `add` syntax, including version specifiers such as `Runic@1.10.0`.
 
 #### `language_version`
 
@@ -534,6 +534,9 @@ prek uses `uv` for creating virtual environments and installing dependencies:
 - First tries to find `uv` in the system PATH
 - If not found, automatically installs `uv` from Astral's CDN, falling back to PyPI (and mirrors) then `pip`
 - Automatically installs the required Python version if it's not already available
+
+Set [`PREK_UV_SOURCE=none`](reference/environment-variables.md#prek_uv_source) to
+disable automatic uv installation and require an existing compatible uv.
 
 !!! warning "Environment variables"
 
