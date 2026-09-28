@@ -96,8 +96,10 @@ repos:
 
 Trims trailing whitespace from each line.
 
-**Supported arguments** (compatible with `pre-commit-hooks`):
+**Supported arguments**:
 
+- `--check` (prek only)
+    - Report files that would change and exit nonzero without modifying them.
 - `--markdown-linebreak-ext=<ext>` (repeatable / comma-separated)
     - Preserves Markdown hard line breaks (two trailing spaces) for files with the given extension(s).
     - Use `--markdown-linebreak-ext=*` to treat **all** files as Markdown.
@@ -165,7 +167,8 @@ Ensures files end in a newline and only a newline.
 
 **Supported arguments**
 
-- None.
+- `--check` (prek only)
+    - Report files that would change and exit nonzero without modifying them.
 
 **Behavior / caveats**
 
@@ -180,8 +183,10 @@ Ensures files end in a newline and only a newline.
 
 Sorts the non-empty lines in each matched file and rewrites the file when the normalized order changes.
 
-**Supported arguments** (compatible with `pre-commit-hooks`):
+**Supported arguments**:
 
+- `--check` (prek only)
+    - Report files that would change and exit nonzero without modifying them.
 - `--ignore-case`
     - Sort using ASCII case-folded ordering.
     - Mutually exclusive with `--unique`.
@@ -211,6 +216,11 @@ repos:
 
 Sorts entries in Python `requirements*.txt` and `constraints*.txt` files by their case-insensitive requirement name.
 
+**Supported arguments**
+
+- `--check` (prek only)
+    - Report files that would change and exit nonzero without modifying them.
+
 **Behavior / caveats**
 
 - The default file pattern is `(requirements|constraints).*\.txt$`.
@@ -227,7 +237,8 @@ Removes a UTF-8 byte order marker (BOM) from the beginning of a file.
 
 **Supported arguments**
 
-- None.
+- `--check` (prek only)
+    - Report files that would change and exit nonzero without modifying them.
 
 **Caveats**
 
