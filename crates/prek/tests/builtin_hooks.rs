@@ -1095,7 +1095,7 @@ fn check_json_hook() {
         .init_git();
 
     // First run: hooks should fail
-    cmd_snapshot!(context, context.run(), @r"
+    cmd_snapshot!(context, context.run(), @r#"
     success: false
     exit_code: 1
     ----- stdout -----
@@ -1105,14 +1105,16 @@ fn check_json_hook() {
     - exit code: 1
 
       duplicate.json: Failed to json decode (duplicate key `a` at line 1 column 12)
+      empty.json: Failed to json decode (EOF while parsing a value at line 1 column 0)
       invalid.json: Failed to json decode (trailing comma at line 1 column 9)
 
     ----- stderr -----
-    ");
+    "#);
 
     // Fix the files
     context.write_file("invalid.json", r#"{"a": 1}"#);
     context.write_file("duplicate.json", r#"{"a": 1, "b": 2}"#);
+    context.write_file("empty.json", "null");
 
     context.git().add(".");
 
@@ -1283,8 +1285,8 @@ fn check_added_large_files_hook() {
                   - id: check-added-large-files
                     args: ['--maxkb', '1']
         "})
-        .with_file("small_file.txt", "Hello World\n")
-        .with_file("large_file.txt", [0_u8; 2048]);
+        .with_file("small_file.txt", [0_u8; 1024])
+        .with_file("large_file.txt", [0_u8; 1025]);
 
     context.git().add(".");
 
@@ -1365,6 +1367,36 @@ fn check_added_large_files_hook() {
 
     ----- stderr -----
     ");
+}
+
+#[test]
+fn check_added_large_files_zero_limit() {
+    let context = TestEnv::new()
+        .with_config(indoc::indoc! {r"
+        repos:
+          - repo: builtin
+            hooks:
+              - id: check-added-large-files
+                args: ['--maxkb=0']
+                files: '\.bin$'
+    "})
+        .with_file("empty.bin", "")
+        .with_file("nonempty.bin", [0_u8; 1])
+        .init_git();
+
+    cmd_snapshot!(context, context.run(), @r#"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    check for added large files..............................................Failed
+    - hook id: check-added-large-files
+    - description: Prevents giant files from being committed
+    - exit code: 1
+
+      nonempty.bin (1 KB) exceeds 0 KB
+
+    ----- stderr -----
+    "#);
 }
 
 #[test]
@@ -1556,6 +1588,7 @@ fn builtin_hooks_workspace_mode() {
       - exit code: 1
 
         duplicate.json: Failed to json decode (duplicate key `a` at line 1 column 12)
+        empty.json: Failed to json decode (EOF while parsing a value at line 1 column 0)
         invalid.json: Failed to json decode (trailing comma at line 1 column 9)
       mixed line ending......................................................Failed
       - hook id: mixed-line-ending
@@ -1605,6 +1638,7 @@ fn builtin_hooks_workspace_mode() {
     context.write_file("app/duplicate.yaml", "a: 1\nb: 2\n");
     context.write_file("app/invalid.json", concat!(r#"{"a": 1}"#, "\n"));
     context.write_file("app/duplicate.json", concat!(r#"{"a": 1, "b": 2}"#, "\n"));
+    context.write_file("app/empty.json", "null\n");
     context.write_file("app/large.bin", [0u8; 100]);
     context.git().add(".");
 
